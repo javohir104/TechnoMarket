@@ -8,7 +8,7 @@ npm install
 npm run dev        # http://localhost:5173
 ```
 Backend (`npm start`, port 3000) avval ishlab turishi kerak.
-Backend manzili boshqa bo'lsa, `.env` faylida `VITE_API_URL` ni o'zgartiring.
+Asosiy va zaxira backend manzillari `.env` faylida `VITE_PRIMARY_API_URL` va `VITE_BACKUP_API_URL` orqali sozlanadi.
 
 Bazani namuna telefonlar bilan to'ldirish (backend papkasida): `npm run seed:products`
 

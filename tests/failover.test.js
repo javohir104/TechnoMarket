@@ -7,6 +7,9 @@ import {
   UnauthorizedError,
   CircuitBreaker,
   analyzeResponseForFailover,
+  PRIMARY_API_URL,
+  BACKUP_API_URL,
+  API_BASE_URL,
 } from "../src/api.js";
 
 /**
@@ -165,7 +168,7 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 5. Primary API 429 qaytarsa, belgilangan siyosat bo‘yicha backup sinab ko‘rilishi
+  // 5. Primary API 429 qaytarsa, backup chaqirilishi
   test("5. Primary API 429 (Too Many Requests) qaytarsa, backup chaqirilishi", async () => {
     let primaryCalled = 0;
     let backupCalled = 0;
@@ -197,9 +200,7 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 6. Primary API 404 qaytarsa:
-  // a) Render proxy 404 da backup chaqirilishi
-  // b) Backend JSON 404 da backup chaqirilmasligi va 404 qaytarilishi
+  // 6a. Primary API Render proxy 404 da backup chaqirilishi
   test("6a. Primary API Render proxy 404 HTML qaytarsa, backup chaqirilishi", async () => {
     let primaryCalled = 0;
     let backupCalled = 0;
@@ -231,6 +232,7 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
+  // 6b. Primary API backend biznes 404 JSON qaytarsa, backup chaqirilmasligi
   test("6b. Primary API backend biznes 404 JSON qaytarsa, backup chaqirilmasligi", async () => {
     let primaryCalled = 0;
     let backupCalled = 0;
@@ -260,7 +262,7 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
       (err) => {
         assert.ok(err instanceof ApiError);
         assert.equal(err.status, 404);
-        assert.equal(err.message, "Mahsulot topilmadi"); // Tarjima qilingan xabar
+        assert.equal(err.message, "Mahsulot topilmadi");
         return true;
       }
     );
@@ -272,11 +274,10 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 7. Primary API bilan tarmoq aloqasi uzilsa (network error), backup sinab ko‘rilishi
-  test("7. Primary API bilan tarmoq aloqasi uzilsa, backup sinab ko‘rilishi", async () => {
+  // 7. Primary API bilan tarmoq aloqasi uzilsa, backup sinab ko'rilishi
+  test("7. Primary API bilan tarmoq aloqasi uzilsa, backup sinab ko'rilishi", async () => {
     let backupCalled = 0;
 
-    // Mavjud bo'lmagan portga so'rov yuborish (ulanish rad etiladi / connection refused)
     const deadPortUrl = "http://127.0.0.1:54321";
 
     const backup = await createMockServer((req, res) => {
@@ -298,14 +299,13 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 8. Primary API timeout bo‘lsa, backup sinab ko‘rilishi
-  test("8. Primary API timeout bo‘lsa, backup sinab ko‘rilishi", async () => {
+  // 8. Primary API timeout bo'lsa, backup sinab ko'rilishi
+  test("8. Primary API timeout bo'lsa, backup sinab ko'rilishi", async () => {
     let primaryCalled = 0;
     let backupCalled = 0;
 
     const primary = await createMockServer((req, res) => {
       primaryCalled++;
-      // Javob qaytarmay kutib turadi
     });
 
     const backup = await createMockServer((req, res) => {
@@ -319,7 +319,7 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
       primaryUrl: primary.url,
       backupUrl: backup.url,
       circuitBreaker: cb,
-      timeout: 100, // Test uchun 100ms qisqa timeout
+      timeout: 100,
     });
 
     assert.equal(primaryCalled, 1);
@@ -363,8 +363,8 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 10. Login va autentifikatsiya ishlashi (Authorization headerlar to‘g‘ri uzatilishi)
-  test("10. Login va autentifikatsiya ishlashi (Bearer token to‘g‘ri uzatilishi)", async () => {
+  // 10. Login va autentifikatsiya ishlashi (Bearer token to'g'ri uzatilishi)
+  test("10. Login va autentifikatsiya ishlashi (Bearer token to'g'ri uzatilishi)", async () => {
     let receivedAuth = "";
 
     const primary = await createMockServer((req, res) => {
@@ -393,8 +393,8 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 11. POST so‘rovlari xavfli tarzda takrorlanmasligi, Idempotency-Key va X-Request-Id uzatilishi
-  test("11. POST so‘rovlarida Idempotency-Key va X-Request-Id headerlari uzatilishi", async () => {
+  // 11. POST so'rovlarida Idempotency-Key va X-Request-Id headerlari uzatilishi
+  test("11. POST so'rovlarida Idempotency-Key va X-Request-Id headerlari uzatilishi", async () => {
     let receivedKey = "";
     let receivedReqId = "";
     let receivedBody = "";
@@ -431,7 +431,7 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 12. Primary API qayta tiklangach, undan foydalanish davom etishi (Circuit Breaker recovery)
+  // 12. Primary API qayta tiklangach, undan foydalanish davom etishi (Circuit Breaker)
   test("12. Primary API qayta tiklangach, undan foydalanish davom etishi (Circuit Breaker)", async () => {
     let primaryHealthy = false;
     let primaryCalls = 0;
@@ -458,26 +458,20 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
       primaryUrl: primary.url,
       backupUrl: backup.url,
       threshold: 2,
-      coolDownMs: 50, // 50ms qisqa sovush vaqti
+      coolDownMs: 50,
     });
 
-    // 1-so'rov: Primary 503 -> Failover Backup
     await api("/test", { primaryUrl: primary.url, backupUrl: backup.url, circuitBreaker: cb });
-    // 2-so'rov: Primary 503 -> Failover Backup -> Circuit Breaker OPEN bo'ladi
     await api("/test", { primaryUrl: primary.url, backupUrl: backup.url, circuitBreaker: cb });
     assert.equal(cb.state, "OPEN");
 
-    // 3-so'rov (hali cooldown tugamagan): To'g'ridan-to'g'ri Backup'ga ketadi
     await api("/test", { primaryUrl: primary.url, backupUrl: backup.url, circuitBreaker: cb });
     assert.equal(cb.activeServer, "backup");
 
-    // Primary endi tiklandi!
     primaryHealthy = true;
 
-    // Cooldown o'tishini kutamiz (60ms)
     await new Promise((r) => setTimeout(r, 60));
 
-    // 4-so'rov: HALF_OPEN holatida Primary'ni sinab ko'radi va muvaffaqiyatli bo'lsa tiklanadi
     const res = await api("/test", { primaryUrl: primary.url, backupUrl: backup.url, circuitBreaker: cb });
     assert.equal(res.source, "primary-recovered");
     assert.equal(cb.state, "CLOSED");
@@ -487,8 +481,8 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 13. Bir so‘rov bir necha marta cheksiz yuborilmasligi (Aniq 1 marta retry)
-  test("13. Bir so‘rov bir necha marta cheksiz yuborilmasligi (Aniq 1 retry: Primary -> Backup)", async () => {
+  // 13. Bir so'rov bir necha marta cheksiz yuborilmasligi (Aniq 1 marta retry)
+  test("13. Bir so'rov bir necha marta cheksiz yuborilmasligi (Aniq 1 retry: Primary -> Backup)", async () => {
     let primaryAttempts = 0;
     let backupAttempts = 0;
 
@@ -514,7 +508,6 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
       });
     } catch (_err) {}
 
-    // Aniq bitta Primary va bitta Backup chaqiruvi bo'lishi kerak, cheksiz loop bo'lmasligi kerak
     assert.equal(primaryAttempts, 1);
     assert.equal(backupAttempts, 1);
 
@@ -522,7 +515,7 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
     await backup.close();
   });
 
-  // 14. Headerlar va request body to‘g‘ri uzatilishi (body birinchi urinishda yo‘qolib qolmasligi)
+  // 14. Headerlar va request body to'g'ri uzatilishi (body birinchi urinishda yo'qolib qolmasligi)
   test("14. Custom headerlar va murakkab JSON body Backup'ga to'liq yetib borishi", async () => {
     let backupHeaders = null;
     let backupBody = null;
@@ -563,5 +556,69 @@ describe("API Failover va Circuit Breaker Testlari (14 ta vaziyat)", () => {
 
     await primary.close();
     await backup.close();
+  });
+
+  // 15. API URL sozlamalari: Asosiy va zaxira backendlar to'g'ri belgilanishi
+  test("15. API URL sozlamalari to'g'ri (PRIMARY=bg-t6dz, BACKUP=bg-1-knxc)", () => {
+    assert.equal(PRIMARY_API_URL, "https://bg-t6dz.onrender.com");
+    assert.equal(BACKUP_API_URL, "https://bg-1-knxc.onrender.com");
+  });
+
+  // 16. API_BASE_URL default bo'sh (proxy mode yo'q)
+  test("16. API_BASE_URL default bo'sh", () => {
+    assert.equal(API_BASE_URL, "");
+  });
+
+  // 17. Proxy mode: API_BASE_URL sozlangan bo'lda, bir serverga to'g'ridan-to'g'ri so'rov
+  test("17. Proxy mode: primary=backup=proxy.url bo'lda, faqat bitta urinish", async () => {
+    let called = 0;
+
+    const server = await createMockServer((req, res) => {
+      called++;
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify([{ id: 1, name: "Proxy product" }]));
+    });
+
+    const cb = new CircuitBreaker({ primaryUrl: server.url, backupUrl: server.url });
+    const result = await api("/products", {
+      primaryUrl: server.url,
+      backupUrl: server.url,
+      circuitBreaker: cb,
+    });
+
+    assert.equal(called, 1);
+    assert.equal(Array.isArray(result), true);
+    assert.equal(result.length, 1);
+    assert.equal(result[0].name, "Proxy product");
+
+    await server.close();
+  });
+
+  // 18. Backend to'g'ridan-to'g'ri massiv qaytarsa (response.data emas), state'ga to'g'ri joylashtiriladi
+  test("18. Backend massiv qaytarsa, Array.isArray tekshiruvi to'g'ri ishlaydi", async () => {
+    const products = Array.from({ length: 8 }, (_, i) => ({
+      _id: `p${i + 1}`,
+      name: `Product ${i + 1}`,
+      price: 1000 * (i + 1),
+    }));
+
+    const server = await createMockServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "application/json" });
+      res.end(JSON.stringify(products));
+    });
+
+    const cb = new CircuitBreaker({ primaryUrl: server.url, backupUrl: server.url });
+    const result = await api("/products", {
+      primaryUrl: server.url,
+      backupUrl: server.url,
+      circuitBreaker: cb,
+    });
+
+    assert.equal(Array.isArray(result), true);
+    assert.equal(result.length, 8);
+    assert.equal(result[0].name, "Product 1");
+    assert.equal(result.data, undefined);
+
+    await server.close();
   });
 });

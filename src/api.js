@@ -60,6 +60,16 @@ export function generateRequestId() {
  * to'g'ridan-to'g'ri Backup serverga yo'naltiradi va vaqti-vaqti bilan
  * Primary tiklanganligini tekshirib turadi.
  */
+/**
+ * Proxy mode base URL. When VITE_API_BASE_URL is set (e.g. /api on Vercel),
+ * all requests go through that single origin (server-side proxy, bypasses CORS).
+ * Failover is skipped because the proxy targets a known-working backend.
+ */
+export const API_BASE_URL = (
+  (typeof import.meta !== "undefined" && import.meta.env && import.meta.env.VITE_API_BASE_URL) ||
+  ""
+).replace(/\/+$/, "");
+
 export class CircuitBreaker {
   constructor({
     primaryUrl = PRIMARY_API_URL,
@@ -385,6 +395,28 @@ export async function api(
     headers["X-Request-Id"] = reqId;
     if (idempotencyKey) {
       headers["Idempotency-Key"] = idempotencyKey;
+    }
+  }
+
+  // Proxy mode: barcha so'rovlar bitta origin orqali (Vercel server-side proxy, CORS yo'q)
+  // Faqat bitta serverga so'rov yuboriladi, failover o'tkazib yuboriladi
+  if (API_BASE_URL) {
+    try {
+      const res = await executeSingleFetch(API_BASE_URL, path, {
+        method: normMethod,
+        headers,
+        serializedBody,
+        signal,
+        timeout,
+      });
+      return await parseAndHandleResponse(res, token, "proxy");
+    } catch (err) {
+      if (signal && signal.aborted) throw err;
+      throw new ApiError(
+        "Proxy serverga ulanib bo'lmadi. Internet aloqasini tekshiring.",
+        0,
+        "proxy"
+      );
     }
   }
 
